@@ -1,0 +1,9 @@
+#install the latest minor version, so up to 2.9.*
+#flask>=2.2.2,<3.0
+
+#install specific version only
+#flask=2.2.2
+
+flask
+genanki
+requests
