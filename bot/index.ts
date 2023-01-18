@@ -1,5 +1,6 @@
 import { Bot, Context, GrammyError, HttpError, InputFile } from "grammy";
 import dotenv from "dotenv";
+import { parse } from 'csv-parse/sync';
 
 dotenv.config();
 
@@ -9,20 +10,36 @@ const BOT_FILES_URL = "https://api.telegram.org/file/bot";
 
 const ALLOWED_EXTENSIONS = ['txt', 'csv'];
 
-const bot = new Bot<Context>(process.env.BOT_KEY!); 
+const bot = new Bot<Context>(process.env.BOT_KEY!);
+
+bot.command('start', async (ctx) => {
+  const message = `This Bot will transform your <b>CSV file</b> or <b>plain text message</b> with vocabulary to an <b>Anki Deck</b>.
+\nThere are some rules:
+\n1. Maximum file size is 4MB
+2. Files other than <b>txt</b> and <b>csv</b> will be ignored
+3. <b>Number of fields</b> is defined by looking at the first row
+4. Delimiter is set by looking at the first row (only commas, only tabs or only semicolons)
+5. Invalid words and phrases will be ignored`
+
+  await ctx.reply(message, {parse_mode: "HTML"});
+})
 
 bot.on("message:file", async (ctx) => {
   try {
     const doc = ctx.msg.document;
     const extension = doc?.file_name?.split('.').at(-1);
+    const file_size = doc?.file_size!;
 
     if (!ALLOWED_EXTENSIONS.includes(extension!)) {
-      await ctx.reply(`Format is not supported! Supported formats: [${ALLOWED_EXTENSIONS.toString()}].`);
+      const message = `<b>Format is not supported!</b>\n\nYour file: <b>${extension}</b>\nSupported formats: <b>${ALLOWED_EXTENSIONS.join(', ')}</b>`;
+      await ctx.reply(message, {parse_mode: "HTML"});
       return;
     }
 
-    if (doc?.file_size! > 4e6) {
-      await ctx.reply('The file is too big! Max file size is 4MB!');
+    if (file_size > 4e6) {
+      const user_file_size = file_size > 1e6 ? ">" + Math.floor(file_size / 1e6) + "MB" : ">" + Math.floor(file_size / 1000) + "KB";
+      const message = `<b>The file is too big!</b>\n\nYour file: <b>${user_file_size}</b>\nMax file size: <b>4MB</b>`
+      await ctx.reply(message, {parse_mode: 'HTML'});
       return;
     }
 
@@ -59,6 +76,38 @@ bot.on("message:file", async (ctx) => {
     console.log(e);
   }
 });
+
+bot.on("message:text", async (ctx) => {
+  let data = [];
+  const message = ctx.msg.text;
+  const records = parse(message, {
+    delimiter: [";", ",", "|"],
+    skip_empty_lines: true,
+    skip_records_with_empty_values: true,
+    trim: true
+  });
+  console.log(records)
+
+  if (records.length === 1 && records[0].length === 1) {
+    const message = `<b>List is too short!</b>\n\nYour vocabulary list is too short or no delimiter was detected`
+    await ctx.reply(message, {parse_mode: "HTML"});
+    return;
+  }
+
+  // case where there is on row
+  if (records.length === 1 && records[0].length > 1) {
+    data = [...records[0].map((rec: string) => [rec])];
+  }
+
+  // case where there are multiple columns
+  if (records.length > 1) {
+    // Do something...
+    data = records;
+  }
+
+  await ctx.reply(`Processing ${data.length} entries...`);
+  
+})
 
 bot.start({onStart: () => {
   console.log("Bot is up and running!")
