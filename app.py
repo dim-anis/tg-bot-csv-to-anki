@@ -3,8 +3,8 @@ import requests
 from flask import Flask, request, send_from_directory
 from dotenv import load_dotenv
 import genanki
-import csv
 import random
+import uuid
 
 load_dotenv()
 
@@ -19,8 +19,12 @@ dict_api_url = "https://od-api.oxforddictionaries.com:443/api/v2/entries/"
 @app.post("/api/create_deck")
 def create_deck():
     data = request.get_json()
-    endpoint = data["link"]
-    file_id = data["file_id"]
+    file_link = data.get("link")
+    file_id = data.get("file_id")
+    message_data = data.get("data")
+
+    total_cards = 0
+    total_lines = 0
 
     model_id = random.randrange(1 << 30, 1 << 31)
     deck_id = random.randrange(1 << 30, 1 << 31)
@@ -42,40 +46,70 @@ def create_deck():
 
     my_deck = genanki.Deck(
     deck_id,
-    'Vocab Cards')
+    'Vocab Cards1')
 
     if not os.path.exists(uploads_path):
         os.mkdir(uploads_path)
 
-    with requests.get(endpoint, stream=True) as r:
+    # if/else statement depending on the body of the POST request
+    if file_link:
 
-        if (r.ok):
-            if r.encoding is None:
-                r.encoding = 'utf-8'
+        with requests.get(file_link, stream=True) as r:
 
-            line_length = None
-            total_cards = 0
+            if (r.ok):
+                if r.encoding is None:
+                    r.encoding = 'utf-8'
 
-            for line in r.iter_lines(chunk_size=1, decode_unicode=True):
-                # if line is not empty
-                if line:
-                    if not bool(line_length):
-                        line_length = len(line.split(","))
-                    if line_length == len(line.split(",")):
-                        word, definition = line.split(",")
-                        new_note = genanki.Note(model=my_model, fields=[word, definition])
+                line_length = None
 
-                        my_deck.add_note(new_note)
-                        genanki.Package(my_deck).write_to_file(f"{uploads_path}/anki_deck_{file_id}.apkg")
-                        
-                        total_cards += 1
-            print(f"added a total of {total_cards} cards to deck")
-            # The deck must be emptied upon completing the FOR loop
-        
+                for line in r.iter_lines(chunk_size=1, decode_unicode=True):
+                    # if line is not empty
+                    if line:
+                        total_lines += 1
+                        if not bool(line_length):
+                            line_length = len(line.split(","))
+                        if line_length == len(line.split(",")):
+                            word, definition = line.split(",")
+                            new_note = genanki.Note(model=my_model, fields=[word, definition])
+
+                            my_deck.add_note(new_note)
+                            genanki.Package(my_deck).write_to_file(f"{uploads_path}/anki_deck_{file_id}.apkg")
+                            
+                            total_cards += 1
+                print(f"added a total of {total_cards} cards to deck")
+
+            return {
+                "status": "success",
+                "link": f"http://127.0.0.1:5000/uploads/anki_deck_{file_id}.apkg",
+                "cards_created": total_cards,
+                "lines_processed": total_lines
+                }
+    
+    if message_data:
+        id = uuid.uuid4()
+        # parse message_data
+        if len(message_data) > 1:
+            # case where user supplied translations
+            if len(message_data[0]) > 1:
+                for pair in message_data:
+                    print(pair[0], pair[1])
+                    new_note = genanki.Note(model=my_model, fields=[pair[0], pair[1]])
+                    my_deck.add_note(new_note)
+                    genanki.Package(my_deck).write_to_file(f"{uploads_path}/anki_deck_{id}.apkg")         
+                    total_cards += 1
+                print(f"added a total of {total_cards} cards to deck")
+            else:
+                # no translations provided
+                return {}
+        else:
+            # user provided a list of words
+            return {}
         return {
             "status": "success",
-            "link": f"http://127.0.0.1:5000/uploads/anki_deck_{file_id}.apkg"
-            }
+            "link": f"http://127.0.0.1:5000/uploads/anki_deck_{id}.apkg",
+            "cards_created": total_cards,
+            "lines_processed": total_cards
+        }
         
     # vocab_list = data["vocab_list"]
     # lang_code = data["lang"]

@@ -78,9 +78,9 @@ bot.on("message:file", async (ctx) => {
 });
 
 bot.on("message:text", async (ctx) => {
-  let data = [];
-  const message = ctx.msg.text;
-  const records = parse(message, {
+  let data: string[][] = [];
+  const userInput = ctx.msg.text;
+  const records = parse(userInput, {
     delimiter: [";", ",", "|"],
     skip_empty_lines: true,
     skip_records_with_empty_values: true,
@@ -101,11 +101,32 @@ bot.on("message:text", async (ctx) => {
 
   // case where there are multiple columns
   if (records.length > 1) {
-    // Do something...
     data = records;
   }
 
-  await ctx.reply(`Processing ${data.length} entries...`);
+  const payload = {
+    data: data,
+  }
+
+  const message = await ctx.reply(`Processing ${data.length} entries...`);
+
+  const request = await fetch(BASE_URL + "/api/create_deck", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const response = await request.json();
+
+  if (response.status === 'success') {
+    const success_message = `✅ <b>Done!</b>\n\nTotal items processed: <b>${response.lines_processed}</b>\nTotal cards added to deck: <b>${response.cards_created}</b>`;
+    await bot.api.editMessageText(ctx.chat.id, message.message_id, success_message, {parse_mode: "HTML"});
+    await ctx.replyWithDocument(new InputFile(
+      new URL(response.link)
+    ));
+  }
   
 })
 
